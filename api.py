@@ -67,7 +67,7 @@ def calculate_bonuses(deal):
     while current_id and level < 3:
         response = supabase.table("partners").select("referrer_id").eq("id", current_id).execute()
         # Проверяем, есть ли данные в ответе
-        if response.data: # <<< ИСПРАВЛЕНО: Проверяем response.data
+        if response. # <<< ИСПРАВЛЕНО: Проверяем response.data
             referrer = response.data[0]["referrer_id"]
             if referrer:
                 chain.append({"level": level + 1, "referrer_id": referrer})
