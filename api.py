@@ -2,18 +2,19 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from fastapi.middleware.cors import CORSMiddleware # <<< ВАЖНО
+from typing import Optional # <<< Для Optional[str]
+from fastapi.middleware.cors import CORSMiddleware # <<< Импорт CORSMiddleware
 
 app = FastAPI()
 
-# <<< Добавляем настройки CORS >>>
-# ВАЖНО: Убедитесь, что allow_origins соответствует вашему домену админки
+# <<< Настройки CORS - ДОЛЖНЫ БЫТЬ САМЫМИ ПЕРВЫМИ >>>
+# Разрешаем запросы с вашего домена админ-панели
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://zoomadmin.vercel.app"], # <<< ВАЖНО: Ваш домен
+    allow_origins=["https://zoomadmin.vercel.app"], # <<< Ваш домен
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"], # <<< Разрешаем все методы (GET, POST, OPTIONS и т.д.)
+    allow_headers=["*"], # <<< Разрешаем все заголовки
 )
 
 # Получаем URL и ключ из переменных окружения (Vercel Environment Variables)
@@ -25,13 +26,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-from typing import Optional # Убедитесь, что это есть
-
+# <<< Исправленная модель Partner с Optional >>>
 class Partner(BaseModel):
     id: str
     name: str
-    referrer_id: Optional[str] = None # Убедитесь, что это есть
-    telegram_id: Optional[str] = None # Убедитесь, что это есть
+    referrer_id: Optional[str] = None
+    telegram_id: Optional[str] = None
 
 class Deal(BaseModel):
     id: str
@@ -45,7 +45,7 @@ def root():
 
 @app.post("/partner")
 def add_partner(partner: Partner):
-    data, count = supabase.table("partners").insert(partner.dict()).execute()
+    data, count = supabase.table("partners").insert(partner.dict(exclude_unset=True)).execute()
     return data
 
 @app.post("/deal")
