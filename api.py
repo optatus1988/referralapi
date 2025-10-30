@@ -2,14 +2,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from fastapi.middleware.cors import CORSMiddleware  # <<< Добавляем это
+from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем CORSMiddleware
 
 app = FastAPI()
 
-# <<< Добавляем эти строки >>>
+# <<< Добавляем настройки CORS >>>
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Можно указать конкретный домен: ["https://zoomadmin.vercel.app"]
+    allow_origins=["*"],  # Можно указать "https://zoomadmin.vercel.app" для большей безопасности
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,8 +27,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 class Partner(BaseModel):
     id: str
     name: str
-    referrer_id: str | None = None  # <-- Обновлено
-    telegram_id: str | None = None # <-- Обновлено
+    referrer_id: str = None
+    telegram_id: str = None
 
 class Deal(BaseModel):
     id: str
@@ -75,22 +75,21 @@ def calculate_bonuses(deal):
     # Рассчитываем бонусы по цепочке
     for item in chain:
         bonus = 0
-    if deal.type == "Продажа":
-    # net = deal.amount - 10000  # <-- Убрали эту строку
-    net = deal.amount # <-- Бонус считается от всей комиссии
-    if item["level"] == 1:
-        bonus = net * 0.06  # или ваш новый процент
-    elif item["level"] == 2:
-        bonus = net * 0.04  # или ваш новый процент
-    elif item["level"] == 3:
-        bonus = net * 0.02  # или ваш новый процент
+        if deal.type == "Продажа":
+       # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+            if item["level"] == 1:
+                bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+            elif item["level"] == 2:
+                bonus = net * 0.04  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+            elif item["level"] == 3:
+                bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
         elif deal.type == "Кредит":
             if item["level"] == 1:
-                bonus = 50000 * 0.08
+                bonus = 50000 * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif item["level"] == 2:
-                bonus = 50000 * 0.05
+                bonus = 50000 * 0.05  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif item["level"] == 3:
-                bonus = 50000 * 0.02
+                bonus = 50000 * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
 
         # Сохраняем бонус в базу
         bonus_data = {
@@ -137,6 +136,11 @@ def get_partner(partner_id: str):
     if not data[1]:
         raise HTTPException(status_code=404, detail="Partner not found")
     return data[1][0]
+
+@app.get("/partner")  # <<< Новый маршрут для загрузки списка перекупов
+def get_all_partners():
+    data, count = supabase.table("partners").select("*").execute()
+    return data[1]
 
 @app.get("/referrals/{partner_id}")
 def get_referrals(partner_id: str):
