@@ -27,8 +27,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 class Partner(BaseModel):
     id: str
     name: str
-    referrer_id: str = None
-    telegram_id: str = None
+    referrer_id: str | None = None  # <-- Обновлено
+    telegram_id: str | None = None # <-- Обновлено
 
 class Deal(BaseModel):
     id: str
