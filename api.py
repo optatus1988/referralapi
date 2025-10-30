@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from fastapi.middleware.cors import CORSMiddleware  # <<< Уже добавлено
+from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем CORSMiddleware
 
 app = FastAPI()
 
@@ -63,7 +63,7 @@ def calculate_bonuses(deal):
 
     while current_id and level < 3:
         response = supabase.table("partners").select("referrer_id").eq("id", current_id).execute()
-        if response.data: # <<< ИСПРАВЛЕНО: Проверяем, есть ли данные
+        if response.data:
             referrer = response.data[0]["referrer_id"]
             if referrer:
                 chain.append({"level": level + 1, "referrer_id": referrer})
@@ -76,8 +76,7 @@ def calculate_bonuses(deal):
     for item in chain:
         bonus = 0
         if deal.type == "Продажа":
-            # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
-            net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ КОМИССИЮ
+            net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
             if item["level"] == 1:
                 bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif item["level"] == 2:
@@ -138,7 +137,7 @@ def get_partner(partner_id: str):
         raise HTTPException(status_code=404, detail="Partner not found")
     return data[1][0]
 
-@app.get("/partner")
+@app.get("/partner")  # <<< Новый маршрут для загрузки списка перекупов
 def get_all_partners():
     data, count = supabase.table("partners").select("*").execute()
     return data[1]
@@ -147,39 +146,3 @@ def get_all_partners():
 def get_referrals(partner_id: str):
     data, count = supabase.table("partners").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
-
-# <<< НОВОЕ: Маршрут для статистики по пользователю (БЕЗ аутентификации) >>>
-@app.get("/deals/partner/{partner_id}")
-def get_deals_for_partner(partner_id: str):
-    # Получаем все сделки конкретного партнёра
-    deals_data, count = supabase.table("deals").select("*").eq("partner_id", partner_id).execute()
-    deals = deals_data[1] if deals_data[1] else []
-
-    # Получаем бонусы, которые получил *этот партнёр* как реферер (уровень 1 от его рефералов)
-    # Это бонусы, где referrer_id == partner_id
-    bonuses_data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
-    bonuses = bonuses_data[1] if bonuses_data[1] else []
-
-    # Получаем рефералов 1-го уровня
-    referrals_data, count = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
-    referrals = [r['id'] for r in referrals_data[1]] if referrals_data[1] else []
-
-    # Собираем статистику
-    total_deals = len(deals)
-    total_commission = sum(d['amount'] for d in deals)
-    total_bonuses = sum(b['bonus'] for b in bonuses)
-
-    # Формируем ответ
-    result = {
-        "partner_id": partner_id,
-        "stats": {
-            "total_deals": total_deals,
-            "total_commission": total_commission,
-            "total_bonuses": total_bonuses,
-            "referrals_count": len(referrals)
-        },
-        "deals": deals,
-        "bonuses_received": bonuses # Бонусы, полученные *им* за рефералов
-    }
-
-    return result
