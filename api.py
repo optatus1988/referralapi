@@ -6,8 +6,8 @@ import os
 app = FastAPI()
 
 # Укажите URL и ключ вашего проекта Supabase (без пробелов!)
-SUPABASE_URL = "https://bwvnxtfilluwnhrgsrvy.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3dm54dGZpbGx1d25ocmdzcnZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MTM4MTUsImV4cCI6MjA3NzM4OTgxNX0.SMfrGxuZgTodskhmdCHUl4GyAsB_XvaeWInNcrn3Bzw"
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
