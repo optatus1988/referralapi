@@ -3,8 +3,7 @@
   "builds": [
     {
       "src": "api.py",
-      "use": "@vercel/python",
-      "config": { "runtime": "python3.9" } // Указание версии Python, если нужно
+      "use": "@vercel/python"
     }
   ],
   "routes": [
