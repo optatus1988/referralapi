@@ -2,4 +2,3 @@ fastapi
 uvicorn
 supabase
 pydantic
-python-jose[cryptography] # <<< Нужно добавить
