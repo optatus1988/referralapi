@@ -28,8 +28,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 class Partner(BaseModel):
     id: str
     name: str
-    referrer_id: str = None
-    telegram_id: str = None
+    referrer_id: Optional[str] = None # <<< Указываем, что поле необязательное
+    telegram_id: Optional[str] = None # <<< Указываем, что поле необязательное
 
 class Deal(BaseModel):
     id: str
