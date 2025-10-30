@@ -2,12 +2,25 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
+from fastapi.middleware.cors import CORSMiddleware  # <<< Добавляем это
 
 app = FastAPI()
 
-# Укажите URL и ключ вашего проекта Supabase (без пробелов!)
+# <<< Добавляем эти строки >>>
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Можно указать конкретный домен: ["https://zoomadmin.vercel.app"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Получаем URL и ключ из переменных окружения (Vercel Environment Variables)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Не заданы SUPABASE_URL или SUPABASE_KEY в Environment Variables")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
