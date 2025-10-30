@@ -5,7 +5,7 @@ import os
 
 app = FastAPI()
 
-# Укажите URL и ключ вашего проекта Supabase
+# Укажите URL и ключ вашего проекта Supabase (без пробелов!)
 SUPABASE_URL = "https://bwvnxtfilluwnhrgsrvy.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3dm54dGZpbGx1d25ocmdzcnZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MTM4MTUsImV4cCI6MjA3NzM4OTgxNX0.SMfrGxuZgTodskhmdCHUl4GyAsB_XvaeWInNcrn3Bzw"
 
@@ -23,6 +23,10 @@ class Deal(BaseModel):
     type: str
     amount: float
 
+@app.get("/")
+def root():
+    return {"message": "API работает!"}
+
 @app.post("/partner")
 def add_partner(partner: Partner):
     data, count = supabase.table("partners").insert(partner.dict()).execute()
@@ -36,7 +40,7 @@ def add_deal(deal: Deal):
 @app.get("/bonuses/{partner_id}")
 def get_bonuses(partner_id: str):
     data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
-    return data[1]  # [0] — метаданные, [1] — данные
+    return data[1]
 
 @app.get("/partner/{partner_id}")
 def get_partner(partner_id: str):
