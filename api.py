@@ -1,15 +1,60 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware  # <<< Уже добавлено
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+
+# <<< НОВОЕ: Настройка JWT >>>
+SECRET_KEY = os.environ.get("JWT_SECRET")
+if not SECRET_KEY:
+    raise ValueError("Не задан JWT_SECRET в Environment Variables")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# <<< НОВОЕ: Модель для логина >>>
+class LoginData(BaseModel):
+    username: str
+    password: str
+
+# <<< НОВОЕ: Функция для создания токена >>>
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# <<< НОВОЕ: Зависимость для проверки токена >>>
+def verify_token(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    return username
+
+# <<< НОВОЕ: OAuth2 схема для авторизации >>>
+from fastapi.security import HTTPBearer
+oauth2_scheme = HTTPBearer()
 
 app = FastAPI()
 
-# <<< Добавляем настройки CORS >>>
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Можно указать "https://zoomadmin.vercel.app" для большей безопасности
+    allow_origins=["*"],  # Укажите ваш домен, например "https://zoomadmin.vercel.app"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -21,6 +66,13 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Не заданы SUPABASE_URL или SUPABASE_KEY в Environment Variables")
+
+# <<< НОВОЕ: Проверка логина/пароля >>>
+ADMIN_USER = os.environ.get("ADMIN_USER")
+ADMIN_PASS = os.environ.get("ADMIN_PASS")
+
+if not ADMIN_USER or not ADMIN_PASS:
+    raise ValueError("Не заданы ADMIN_USER или ADMIN_PASS в Environment Variables")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -36,17 +88,30 @@ class Deal(BaseModel):
     type: str
     amount: float
 
+# <<< НОВОЕ: Маршрут логина >>>
+@app.post("/login")
+def login(login_data: LoginData):
+    if login_data.username == ADMIN_USER and login_data.password == ADMIN_PASS:
+        token_data = {"sub": login_data.username}
+        access_token = create_access_token(
+            data=token_data, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+    else:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+
+# <<< ОБНОВЛЕНО: Все маршруты защищены >>>
 @app.get("/")
-def root():
+def root(current_user: str = Depends(verify_token)): # <<< Защита
     return {"message": "API работает!"}
 
 @app.post("/partner")
-def add_partner(partner: Partner):
+def add_partner(partner: Partner, current_user: str = Depends(verify_token)): # <<< Защита
     data, count = supabase.table("partners").insert(partner.dict()).execute()
     return data
 
 @app.post("/deal")
-def add_deal(deal: Deal):
+def add_deal(deal: Deal, current_user: str = Depends(verify_token)): # <<< Защита
     # Сохраняем сделку
     data, count = supabase.table("deals").insert(deal.dict()).execute()
 
@@ -76,7 +141,8 @@ def calculate_bonuses(deal):
     for item in chain:
         bonus = 0
         if deal.type == "Продажа":
-            net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+            # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+            net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ КОМИССИЮ
             if item["level"] == 1:
                 bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif item["level"] == 2:
@@ -102,17 +168,17 @@ def calculate_bonuses(deal):
         supabase.table("bonuses").insert(bonus_data).execute()
 
 @app.get("/bonuses")
-def get_all_bonuses():
+def get_all_bonuses(current_user: str = Depends(verify_token)): # <<< Защита
     data, count = supabase.table("bonuses").select("*").execute()
     return data[1]
 
 @app.get("/bonuses/{partner_id}")
-def get_bonuses(partner_id: str):
+def get_bonuses(partner_id: str, current_user: str = Depends(verify_token)): # <<< Защита
     data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
 
 @app.get("/payouts")
-def get_payouts():
+def get_payouts(current_user: str = Depends(verify_token)): # <<< Защита
     # Суммируем бонусы по каждому рефереру
     data, count = supabase.table("bonuses").select("referrer_id, bonus").execute()
     bonuses = data[1]
@@ -131,18 +197,54 @@ def get_payouts():
     return result
 
 @app.get("/partner/{partner_id}")
-def get_partner(partner_id: str):
+def get_partner(partner_id: str, current_user: str = Depends(verify_token)): # <<< Защита
     data, count = supabase.table("partners").select("*").eq("id", partner_id).execute()
     if not data[1]:
         raise HTTPException(status_code=404, detail="Partner not found")
     return data[1][0]
 
-@app.get("/partner")  # <<< Новый маршрут для загрузки списка перекупов
-def get_all_partners():
+@app.get("/partner")  # <<< Защита
+def get_all_partners(current_user: str = Depends(verify_token)):
     data, count = supabase.table("partners").select("*").execute()
     return data[1]
 
 @app.get("/referrals/{partner_id}")
-def get_referrals(partner_id: str):
+def get_referrals(partner_id: str, current_user: str = Depends(verify_token)): # <<< Защита
     data, count = supabase.table("partners").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
+
+# <<< НОВОЕ: Маршрут для статистики по пользователю >>>
+@app.get("/deals/partner/{partner_id}")
+def get_deals_for_partner(partner_id: str, current_user: str = Depends(verify_token)): # <<< Защита
+    # Получаем все сделки конкретного партнёра
+    deals_data, count = supabase.table("deals").select("*").eq("partner_id", partner_id).execute()
+    deals = deals_data[1] if deals_data[1] else []
+
+    # Получаем бонусы, которые получил *этот партнёр* как реферер (уровень 1 от его рефералов)
+    # Это бонусы, где referrer_id == partner_id
+    bonuses_data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
+    bonuses = bonuses_data[1] if bonuses_data[1] else []
+
+    # Получаем рефералов 1-го уровня
+    referrals_data, count = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
+    referrals = [r['id'] for r in referrals_data[1]] if referrals_data[1] else []
+
+    # Собираем статистику
+    total_deals = len(deals)
+    total_commission = sum(d['amount'] for d in deals)
+    total_bonuses = sum(b['bonus'] for b in bonuses)
+
+    # Формируем ответ
+    result = {
+        "partner_id": partner_id,
+        "stats": {
+            "total_deals": total_deals,
+            "total_commission": total_commission,
+            "total_bonuses": total_bonuses,
+            "referrals_count": len(referrals)
+        },
+        "deals": deals,
+        "bonuses_received": bonuses # Бонусы, полученные *им* за рефералов
+    }
+
+    return result
