@@ -75,14 +75,15 @@ def calculate_bonuses(deal):
     # Рассчитываем бонусы по цепочке
     for item in chain:
         bonus = 0
-        if deal.type == "Продажа":
-            net = deal.amount - 10000
-            if item["level"] == 1:
-                bonus = net * 0.06
-            elif item["level"] == 2:
-                bonus = net * 0.04
-            elif item["level"] == 3:
-                bonus = net * 0.02
+    if deal.type == "Продажа":
+    # net = deal.amount - 10000  # <-- Убрали эту строку
+    net = deal.amount # <-- Бонус считается от всей комиссии
+    if item["level"] == 1:
+        bonus = net * 0.06  # или ваш новый процент
+    elif item["level"] == 2:
+        bonus = net * 0.04  # или ваш новый процент
+    elif item["level"] == 3:
+        bonus = net * 0.02  # или ваш новый процент
         elif deal.type == "Кредит":
             if item["level"] == 1:
                 bonus = 50000 * 0.08
