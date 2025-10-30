@@ -7,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем
 app = FastAPI()
 
 # <<< Добавляем настройки CORS >>>
+# ВАЖНО: Убедитесь, что allow_origins соответствует вашему домену админки
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Можно указать "https://zoomadmin.vercel.app" для большей безопасности
+    allow_origins=["https://zoomadmin.vercel.app"], # <<< Указываем конкретный домен для большей безопасности
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,6 +64,7 @@ def calculate_bonuses(deal):
 
     while current_id and level < 3:
         response = supabase.table("partners").select("referrer_id").eq("id", current_id).execute()
+        # Проверяем, есть ли данные в ответе
         if response.data:
             referrer = response.data[0]["referrer_id"]
             if referrer:
@@ -76,7 +78,8 @@ def calculate_bonuses(deal):
     for item in chain:
         bonus = 0
         if deal.type == "Продажа":
-            net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+            # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+            net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ КОМИССИЮ
             if item["level"] == 1:
                 bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif item["level"] == 2:
@@ -146,3 +149,46 @@ def get_all_partners():
 def get_referrals(partner_id: str):
     data, count = supabase.table("partners").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
+
+# <<< НОВОЕ: Маршрут для статистики по пользователю >>>
+@app.get("/deals/partner/{partner_id}")
+def get_deals_for_partner(partner_id: str):
+    """
+    Возвращает статистику и данные для конкретного партнера.
+    """
+    try:
+        # 1. Получаем все сделки партнера
+        deals_response = supabase.table("deals").select("*").eq("partner_id", partner_id).execute()
+        deals = deals_response.data if deals_response.data else []
+
+        # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1)
+        bonuses_received_response = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
+        bonuses_received = bonuses_received_response.data if bonuses_received_response.data else []
+
+        # 3. Получаем список рефералов 1-го уровня
+        referrals_response = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
+        referrals = [r['id'] for r in referrals_response.data] if referrals_response.data else []
+
+        # 4. Считаем статистику
+        total_deals = len(deals)
+        total_commission = sum(d.get('amount', 0) for d in deals)
+        total_bonuses = sum(b.get('bonus', 0) for b in bonuses_received)
+        referrals_count = len(referrals)
+
+        # 5. Формируем ответ
+        result = {
+            "partner_id": partner_id,
+            "stats": {
+                "total_deals": total_deals,
+                "total_commission": total_commission,
+                "total_bonuses": total_bonuses,
+                "referrals_count": referrals_count
+            },
+            "deals": deals,
+            "bonuses_received": bonuses_received
+        }
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
