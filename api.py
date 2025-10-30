@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 import os
 from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем CORSMiddleware
-from typing import Optional # <<< Добавьте импорт в начало файла, если его ещё нет
 
 app = FastAPI()
 
@@ -26,11 +25,13 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+from typing import Optional # Убедитесь, что это есть
+
 class Partner(BaseModel):
     id: str
     name: str
-    referrer_id: Optional[str] = None # <<< Указываем, что поле необязательное
-    telegram_id: Optional[str] = None # <<< Указываем, что поле необязательное
+    referrer_id: Optional[str] = None # Убедитесь, что это есть
+    telegram_id: Optional[str] = None # Убедитесь, что это есть
 
 class Deal(BaseModel):
     id: str
