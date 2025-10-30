@@ -34,13 +34,88 @@ def add_partner(partner: Partner):
 
 @app.post("/deal")
 def add_deal(deal: Deal):
+    # Сохраняем сделку
     data, count = supabase.table("deals").insert(deal.dict()).execute()
+
+    # Рассчитываем бонусы
+    calculate_bonuses(deal)
+
     return data
+
+def calculate_bonuses(deal):
+    # Получаем цепочку рефералов
+    chain = []
+    current_id = deal.partner_id
+    level = 0
+
+    while current_id and level < 3:
+        response = supabase.table("partners").select("referrer_id").eq("id", current_id).execute()
+        if response.data:
+            referrer = response.data[0]["referrer_id"]
+            if referrer:
+                chain.append({"level": level + 1, "referrer_id": referrer})
+            current_id = referrer
+        else:
+            break
+        level += 1
+
+    # Рассчитываем бонусы по цепочке
+    for item in chain:
+        bonus = 0
+        if deal.type == "Продажа":
+            net = deal.amount - 10000
+            if item["level"] == 1:
+                bonus = net * 0.06
+            elif item["level"] == 2:
+                bonus = net * 0.04
+            elif item["level"] == 3:
+                bonus = net * 0.02
+        elif deal.type == "Кредит":
+            if item["level"] == 1:
+                bonus = 50000 * 0.08
+            elif item["level"] == 2:
+                bonus = 50000 * 0.05
+            elif item["level"] == 3:
+                bonus = 50000 * 0.02
+
+        # Сохраняем бонус в базу
+        bonus_data = {
+            "deal_id": deal.id,
+            "partner_id": deal.partner_id,
+            "referrer_id": item["referrer_id"],
+            "level": item["level"],
+            "bonus": round(bonus)
+        }
+        supabase.table("bonuses").insert(bonus_data).execute()
+
+@app.get("/bonuses")
+def get_all_bonuses():
+    data, count = supabase.table("bonuses").select("*").execute()
+    return data[1]
 
 @app.get("/bonuses/{partner_id}")
 def get_bonuses(partner_id: str):
     data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
+
+@app.get("/payouts")
+def get_payouts():
+    # Суммируем бонусы по каждому рефереру
+    data, count = supabase.table("bonuses").select("referrer_id, bonus").execute()
+    bonuses = data[1]
+
+    payout_map = {}
+    for b in bonuses:
+        ref_id = b["referrer_id"]
+        if ref_id not in payout_map:
+            # Получаем имя партнёра
+            p_data, _ = supabase.table("partners").select("name").eq("id", ref_id).execute()
+            name = p_data[1][0]["name"] if p_data[1] else "Unknown"
+            payout_map[ref_id] = {"name": name, "total": 0}
+        payout_map[ref_id]["total"] += b["bonus"]
+
+    result = [{"id": k, "name": v["name"], "total": v["total"]} for k, v in payout_map.items()]
+    return result
 
 @app.get("/partner/{partner_id}")
 def get_partner(partner_id: str):
