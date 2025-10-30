@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from fastapi.middleware.cors import CORSMiddleware  # <<< Импортируем CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware # <<< ВАЖНО
 
 app = FastAPI()
 
@@ -10,7 +10,7 @@ app = FastAPI()
 # ВАЖНО: Убедитесь, что allow_origins соответствует вашему домену админки
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://zoomadmin.vercel.app"], # <<< Указываем конкретный домен для большей безопасности
+    allow_origins=["https://zoomadmin.vercel.app"], # <<< ВАЖНО: Ваш домен
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
