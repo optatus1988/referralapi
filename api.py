@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware # <<< Импорт CORSMiddle
 app = FastAPI()
 
 # <<< Настройки CORS - ДОЛЖНЫ БЫТЬ САМЫМИ ПЕРВЫМИ >>>
-# Исправлено: Убраны лишние пробелы в URL
+# Разрешаем запросы с вашего домена админ-панели
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://zoomadmin.vercel.app"], # <<< Ваш точный домен без пробелов
@@ -21,7 +21,6 @@ app.add_middleware(
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# Проверка наличия переменных окружения критически важна
 if not SUPABASE_URL or not SUPABASE_KEY:
     # Эта ошибка приведет к FUNCTION_INVOCATION_FAILED если не будет поймана на старте
     # Лучше логировать это явно
@@ -38,6 +37,7 @@ class Partner(BaseModel):
     referrer_id: Optional[str] = None
     telegram_id: Optional[str] = None
 
+# <<< НОВОЕ: Модель Deal с полем date >>>
 class Deal(BaseModel):
     id: str
     partner_id: str
@@ -117,24 +117,25 @@ def calculate_bonuses(deal: Deal):
         for item in chain:
             print(f"[DEBUG] Рассчитываем бонус для уровня {item['level']}, referrer_id: {item['referrer_id']}")
             bonus = 0
+            # <<< ИЗМЕНЕНО: Бонусы рассчитываются от всей суммы сделки >>>
+            net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ СУММУ СДЕЛКИ
             if deal.type == "Продажа":
                 # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
-                net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ КОМИССИЮ
                 if item["level"] == 1:
                     bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 2:
                     bonus = net * 0.04  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 3:
                     bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-                    elif deal.type == "Кредит":
-            # Бонус рассчитывается от всей суммы сделки (deal.amount)
-            net = deal.amount # <<< Используем всю сумму кредита
-            if item["level"] == 1:
-                bonus = net * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-            elif item["level"] == 2:
-                bonus = net * 0.05  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-            elif item["level"] == 3:
-                bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+            elif deal.type == "Кредит":
+                # <<< ИЗМЕНЕНО: Бонусы за кредит тоже от всей суммы >>>
+                # net = 50000  # УБРАТЬ ЭТУ СТРОКУ
+                if item["level"] == 1:
+                    bonus = net * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+                elif item["level"] == 2:
+                    bonus = net * 0.05  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+                elif item["level"] == 3:
+                    bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             
             bonus = round(bonus) # Убедимся, что это число
             print(f"[DEBUG] Рассчитанный бонус: {bonus}")
@@ -153,15 +154,15 @@ def calculate_bonuses(deal: Deal):
                 continue # <<< Пропускаем, если referrer не существует
             # --- КОНЕЦ НОВОГО ---
 
-           # Подготавливаем данные бонуса для вставки
-bonus_data = {
-    "deal_id": deal.id,
-    "partner_id": deal.partner_id, # ID партнера, совершившего сделку
-    "referrer_id": item["referrer_id"], # ID партнера, который получает бонус
-    "level": item["level"],
-    "bonus": round(bonus),
-    "deal_date": deal.date # <<< Добавляем дату сделки
-}
+            # Подготавливаем данные бонуса для вставки
+            bonus_data = {
+                "deal_id": deal.id,
+                "partner_id": deal.partner_id, # ID партнера, совершившего сделку
+                "referrer_id": item["referrer_id"], # ID партнера, который получает бонус
+                "level": item["level"],
+                "bonus": round(bonus),
+                "deal_date": deal.date # <<< Добавляем дату сделки
+            }
             print(f"[DEBUG] Подготовлены данные бонуса для вставки: {bonus_data}")
 
             # --- НОВОЕ: Вставка с обработкой 409 Conflict ---
@@ -286,24 +287,21 @@ def get_deals_for_partner(partner_id: str):
         # 1. Получаем все сделки партнера
         deals_response = supabase.table("deals").select("*").eq("partner_id", partner_id).execute()
         deals = deals_response.data if deals_response.data else []
-        print(f"[DEBUG] Найдено сделок: {len(deals)}")
 
-        # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1)
+        # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1 от его рефералов)
+        # Это бонусы, где referrer_id == partner_id
         bonuses_received_response = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
         bonuses_received = bonuses_received_response.data if bonuses_received_response.data else []
-        print(f"[DEBUG] Найдено бонусов за рефералов: {len(bonuses_received)}")
 
-        # 3. Получаем список рефералов 1-го уровня
+        # 3. Получаем рефералов 1-го уровня
         referrals_response = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
         referrals = [r['id'] for r in referrals_response.data] if referrals_response.data else []
-        print(f"[DEBUG] Найдено рефералов 1-го уровня: {len(referrals)}")
 
         # 4. Считаем статистику
         total_deals = len(deals)
         total_commission = sum(d.get('amount', 0) for d in deals)
         total_bonuses = sum(b.get('bonus', 0) for b in bonuses_received)
         referrals_count = len(referrals)
-        print(f"[DEBUG] Статистика рассчитана: Deals={total_deals}, Commission={total_commission}, Bonuses={total_bonuses}, Referrals={referrals_count}")
 
         # 5. Формируем ответ
         result = {
@@ -315,9 +313,9 @@ def get_deals_for_partner(partner_id: str):
                 "referrals_count": referrals_count
             },
             "deals": deals,
-            "bonuses_received": bonuses_received
+            "bonuses_received": bonuses_received # Бонусы, полученные *им* за рефералов
         }
-        print(f"[DEBUG] Статистика для партнера {partner_id} готова.")
+
         return result
 
     except Exception as e:
