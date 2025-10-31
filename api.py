@@ -43,6 +43,7 @@ class Deal(BaseModel):
     partner_id: str
     type: str
     amount: float
+    date: Optional[str] = None # <<< Новое поле
 
 @app.get("/")
 def root():
