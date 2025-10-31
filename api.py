@@ -125,13 +125,15 @@ def calculate_bonuses(deal: Deal):
                     bonus = net * 0.04  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 3:
                     bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-            elif deal.type == "Кредит":
-                if item["level"] == 1:
-                    bonus = 50000 * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-                elif item["level"] == 2:
-                    bonus = 50000 * 0.05  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
-                elif item["level"] == 3:
-                    bonus = 50000 * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+                    elif deal.type == "Кредит":
+            # Бонус рассчитывается от всей суммы сделки (deal.amount)
+            net = deal.amount # <<< Используем всю сумму кредита
+            if item["level"] == 1:
+                bonus = net * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+            elif item["level"] == 2:
+                bonus = net * 0.05  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
+            elif item["level"] == 3:
+                bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             
             bonus = round(bonus) # Убедимся, что это число
             print(f"[DEBUG] Рассчитанный бонус: {bonus}")
