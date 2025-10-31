@@ -70,8 +70,8 @@ def add_deal(deal: Deal):
     """
     try:
         print(f"[DEBUG] Начинаем обработку новой сделки: {deal.id}")
-        # 1. Сохраняем сделку
-        data, count = supabase.table("deals").insert(deal.dict()).execute()
+        # 1. Сохраняем сделку (включая дату)
+        data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute() # <<< exclude_unset=True
         print(f"[DEBUG] Сделка {deal.id} сохранена в Supabase.")
 
         # 2. Рассчитываем бонусы (асинхронно или синхронно - зависит от вашей архитектуры)
