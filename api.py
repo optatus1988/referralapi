@@ -153,14 +153,15 @@ def calculate_bonuses(deal: Deal):
                 continue # <<< Пропускаем, если referrer не существует
             # --- КОНЕЦ НОВОГО ---
 
-            # Подготавливаем данные бонуса для вставки
-            bonus_data = {
-                "deal_id": deal.id,
-                "partner_id": deal.partner_id, # ID партнера, совершившего сделку
-                "referrer_id": item["referrer_id"], # ID партнера, который получает бонус
-                "level": item["level"], # Уровень должен быть int
-                "bonus": bonus # Бонус должен быть int/float
-            }
+           # Подготавливаем данные бонуса для вставки
+bonus_data = {
+    "deal_id": deal.id,
+    "partner_id": deal.partner_id, # ID партнера, совершившего сделку
+    "referrer_id": item["referrer_id"], # ID партнера, который получает бонус
+    "level": item["level"],
+    "bonus": round(bonus),
+    "deal_date": deal.date # <<< Добавляем дату сделки
+}
             print(f"[DEBUG] Подготовлены данные бонуса для вставки: {bonus_data}")
 
             # --- НОВОЕ: Вставка с обработкой 409 Conflict ---
