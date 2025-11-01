@@ -281,6 +281,7 @@ def get_referrals(partner_id: str):
 def get_deals_for_partner(partner_id: str):
     """
     Возвращает статистику и данные для конкретного партнера.
+    Добавлено: Древовидная структура рефералов.
     """
     try:
         print(f"[DEBUG] Запрашиваем статистику для партнера: {partner_id}")
@@ -289,13 +290,12 @@ def get_deals_for_partner(partner_id: str):
         deals = deals_response.data if deals_response.data else []
 
         # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1 от его рефералов)
-        # Это бонусы, где referrer_id == partner_id
         bonuses_received_response = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
         bonuses_received = bonuses_received_response.data if bonuses_received_response.data else []
 
         # 3. Получаем рефералов 1-го уровня
-        referrals_response = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
-        referrals = [r['id'] for r in referrals_response.data] if referrals_response.data else []
+        referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", partner_id).execute()
+        referrals = referrals_response.data if referrals_response.data else []
 
         # 4. Считаем статистику
         total_deals = len(deals)
@@ -303,9 +303,65 @@ def get_deals_for_partner(partner_id: str):
         total_bonuses = sum(b.get('bonus', 0) for b in bonuses_received)
         referrals_count = len(referrals)
 
-        # 5. Формируем ответ
+        # 5. Построим древовидную структуру рефералов (до 3 уровней)
+        referral_tree = []
+        for ref in referrals:
+            ref_data = {
+                "id": ref["id"],
+                "name": ref["name"],
+                "total_bonuses": 0,  # Будем считать ниже
+                "children": []
+            }
+
+            # Найдём бонусы, полученные этим рефералом как реферером
+            ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", ref["id"]).execute()
+            ref_bonuses = ref_bonuses_response.data if ref_bonuses_response.data else []
+            ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in ref_bonuses)
+
+            # Найдём рефералов 2-го уровня (рефералов реферала)
+            sub_referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", ref["id"]).execute()
+            sub_referrals = sub_referrals_response.data if sub_referrals_response.data else []
+
+            for sub_ref in sub_referrals:
+                sub_ref_data = {
+                    "id": sub_ref["id"],
+                    "name": sub_ref["name"],
+                    "total_bonuses": 0,
+                    "children": []
+                }
+
+                # Найдём бонусы, полученные этим рефералом как реферером
+                sub_ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", sub_ref["id"]).execute()
+                sub_ref_bonuses = sub_ref_bonuses_response.data if sub_ref_bonuses_response.data else []
+                sub_ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in sub_ref_bonuses)
+
+                # Найдём рефералов 3-го уровня
+                sub_sub_referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", sub_ref["id"]).execute()
+                sub_sub_referrals = sub_sub_referrals_response.data if sub_sub_referrals_response.data else []
+
+                for sub_sub_ref in sub_sub_referrals:
+                    sub_sub_ref_data = {
+                        "id": sub_sub_ref["id"],
+                        "name": sub_sub_ref["name"],
+                        "total_bonuses": 0,
+                        "children": []
+                    }
+
+                    # Найдём бонусы, полученные этим рефералом как реферером
+                    sub_sub_ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", sub_sub_ref["id"]).execute()
+                    sub_sub_ref_bonuses = sub_sub_ref_bonuses_response.data if sub_sub_ref_bonuses_response.data else []
+                    sub_sub_ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in sub_sub_ref_bonuses)
+
+                    sub_ref_data["children"].append(sub_sub_ref_data)
+
+                ref_data["children"].append(sub_ref_data)
+
+            referral_tree.append(ref_data)
+
+        # 6. Формируем ответ
         result = {
             "partner_id": partner_id,
+            "partner_name": "Неизвестный", # Можно добавить логику получения имени
             "stats": {
                 "total_deals": total_deals,
                 "total_commission": total_commission,
@@ -313,7 +369,8 @@ def get_deals_for_partner(partner_id: str):
                 "referrals_count": referrals_count
             },
             "deals": deals,
-            "bonuses_received": bonuses_received # Бонусы, полученные *им* за рефералов
+            "bonuses_received": bonuses_received,
+            "referral_tree": referral_tree
         }
 
         return result
