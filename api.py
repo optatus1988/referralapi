@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from typing import Optional # <<< Для Optional[str]
+from typing import Optional # <<< Для Optional[str>
 from fastapi.middleware.cors import CORSMiddleware # <<< Импорт CORSMiddleware
 
 app = FastAPI()
@@ -22,12 +22,8 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    # Эта ошибка приведет к FUNCTION_INVOCATION_FAILED если не будет поймана на старте
-    # Лучше логировать это явно
-    print("CRITICAL: SUPABASE_URL or SUPABASE_KEY is missing!")
     raise ValueError("Не заданы SUPABASE_URL или SUPABASE_KEY в Environment Variables")
 
-# Создание клиента Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # <<< Исправленная модель Partner с Optional >>>
@@ -46,7 +42,6 @@ class Deal(BaseModel):
 
 @app.get("/")
 def root():
-    """Корневой маршрут для проверки работы API."""
     return {"message": "API работает!"}
 
 @app.post("/partner")
@@ -116,9 +111,9 @@ def calculate_bonuses(deal: Deal):
         for item in chain:
             print(f"[DEBUG] Рассчитываем бонус для уровня {item['level']}, referrer_id: {item['referrer_id']}")
             bonus = 0
-            # <<< ИЗМЕНЕНО: Бонусы рассчитываются от всей суммы сделки >>>
-            net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ СУММУ СДЕЛКИ
             if deal.type == "Продажа":
+                # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+                net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ КОМИССИЮ
                 if item["level"] == 1:
                     bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 2:
@@ -126,8 +121,8 @@ def calculate_bonuses(deal: Deal):
                 elif item["level"] == 3:
                     bonus = net * 0.02  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
             elif deal.type == "Кредит":
-                # <<< ИЗМЕНЕНО: Бонусы за кредит тоже от всей суммы >>>
-                # net = 50000  # УБРАТЬ ЭТУ СТРОКУ
+                # net = 50000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
+                net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ СУММУ КРЕДИТА
                 if item["level"] == 1:
                     bonus = net * 0.08  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 2:
@@ -279,7 +274,6 @@ def get_referrals(partner_id: str):
 def get_deals_for_partner(partner_id: str):
     """
     Возвращает статистику и данные для конкретного партнера.
-    Добавлено: Древовидная структура рефералов и привлечённые сделки.
     """
     try:
         print(f"[DEBUG] Запрашиваем статистику для партнера: {partner_id}")
@@ -288,12 +282,13 @@ def get_deals_for_partner(partner_id: str):
         deals = deals_response.data if deals_response.data else []
 
         # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1 от его рефералов)
+        # Это бонусы, где referrer_id == partner_id
         bonuses_received_response = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
         bonuses_received = bonuses_received_response.data if bonuses_received_response.data else []
 
-        # 3. Получаем рефералов 1-го уровня
-        referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", partner_id).execute()
-        referrals = referrals_response.data if referrals_response.data else []
+        # 3. Получаем список рефералов 1-го уровня
+        referrals_response = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
+        referrals = [r['id'] for r in referrals_response.data] if referrals_response.data else []
 
         # 4. Считаем статистику
         total_deals = len(deals)
@@ -301,93 +296,35 @@ def get_deals_for_partner(partner_id: str):
         total_bonuses = sum(b.get('bonus', 0) for b in bonuses_received)
         referrals_count = len(referrals)
 
-        # 5. Построим древовидную структуру рефералов (до 3 уровней)
-        referral_tree = []
-        for ref in referrals:
-            ref_data = {
-                "id": ref["id"],
-                "name": ref["name"],
-                "total_bonuses": 0,  # Будем считать ниже
-                "children": []
-            }
+        # 5. <<< НОВОЕ: Получаем привлечённые сделки >>>
+        referral_deals_count = 0
+        for ref_id in referrals:
+            ref_deals_response = supabase.table("deals").select("id").eq("partner_id", ref_id).execute()
+            if ref_deals_response.data:
+                referral_deals_count += len(ref_deals_response.data)
 
-            # Найдём бонусы, полученные этим рефералом как реферером
-            ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", ref["id"]).execute()
-            ref_bonuses = ref_bonuses_response.data if ref_bonuses_response.data else []
-            ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in ref_bonuses)
-
-            # Найдём рефералов 2-го уровня (рефералов реферала)
-            sub_referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", ref["id"]).execute()
-            sub_referrals = sub_referrals_response.data if sub_referrals_response.data else []
-
-            for sub_ref in sub_referrals:
-                sub_ref_data = {
-                    "id": sub_ref["id"],
-                    "name": sub_ref["name"],
-                    "total_bonuses": 0,
-                    "children": []
-                }
-
-                # Найдём бонусы, полученные этим рефералом как реферером
-                sub_ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", sub_ref["id"]).execute()
-                sub_ref_bonuses = sub_ref_bonuses_response.data if sub_ref_bonuses_response.data else []
-                sub_ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in sub_ref_bonuses)
-
-                # Найдём рефералов 3-го уровня
-                sub_sub_referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", sub_ref["id"]).execute()
-                sub_sub_referrals = sub_sub_referrals_response.data if sub_sub_referrals_response.data else []
-
-                for sub_sub_ref in sub_sub_referrals:
-                    sub_sub_ref_data = {
-                        "id": sub_sub_ref["id"],
-                        "name": sub_sub_ref["name"],
-                        "total_bonuses": 0,
-                        "children": []
-                    }
-
-                    # Найдём бонусы, полученные этим рефералом как реферером
-                    sub_sub_ref_bonuses_response = supabase.table("bonuses").select("*").eq("referrer_id", sub_sub_ref["id"]).execute()
-                    sub_sub_ref_bonuses = sub_sub_ref_bonuses_response.data if sub_sub_ref_bonuses_response.data else []
-                    sub_sub_ref_data["total_bonuses"] = sum(b.get('bonus', 0) for b in sub_sub_ref_bonuses)
-
-                    sub_ref_data["children"].append(sub_sub_ref_data)
-
-                ref_data["children"].append(sub_ref_data)
-
-            referral_tree.append(ref_data)
-
-        # 6. Получим привлечённые сделки (сделки рефералов)
-        referral_deals = []
-        for ref in referrals:
-            # Получим все сделки этого реферала
-            ref_deals_response = supabase.table("deals").select("*").eq("partner_id", ref["id"]).execute()
-            ref_deals = ref_deals_response.data if ref_deals_response.data else []
-            for d in ref_deals:
-                referral_deals.append({
-                    "id": d["id"],
-                    "type": d["type"],
-                    "amount": d["amount"],
-                    "referrer_name": ref["name"] # Имя реферала
-                })
+        # 6. <<< НОВОЕ: Получаем имя партнера >>>
+        partner_name = "Unknown"
+        partner_data_response = supabase.table("partners").select("name").eq("id", partner_id).execute()
+        if partner_data_response.data and len(partner_data_response.data) > 0:
+            partner_name = partner_data_response.data[0]["name"]
 
         # 7. Формируем ответ
         result = {
             "partner_id": partner_id,
-            "partner_name": "Неизвестный", # Можно добавить логику получения имени
+            "partner_name": partner_name, # <<< Добавлено
             "stats": {
                 "total_deals": total_deals,
                 "total_commission": total_commission,
                 "total_bonuses": total_bonuses,
-                "referrals_count": referrals_count
+                "referrals_count": referrals_count,
+                "referral_deals_count": referral_deals_count # <<< Добавлено
             },
             "deals": deals,
-            "bonuses_received": bonuses_received,
-            "referral_tree": referral_tree,
-            "referral_deals": referral_deals
+            "bonuses_received": bonuses_received
         }
 
         return result
 
     except Exception as e:
-        print(f"[ERROR] Ошибка в get_deals_for_partner для {partner_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error in get_deals_for_partner: {str(e)}")
