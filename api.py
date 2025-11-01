@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
-from typing import Optional # <<< Для Optional[str>
+from typing import Optional # <<< Для Optional[str]
 from fastapi.middleware.cors import CORSMiddleware # <<< Импорт CORSMiddleware
 
 app = FastAPI()
@@ -37,7 +37,6 @@ class Partner(BaseModel):
     referrer_id: Optional[str] = None
     telegram_id: Optional[str] = None
 
-# <<< НОВОЕ: Модель Deal с полем date >>>
 class Deal(BaseModel):
     id: str
     partner_id: str
@@ -120,7 +119,6 @@ def calculate_bonuses(deal: Deal):
             # <<< ИЗМЕНЕНО: Бонусы рассчитываются от всей суммы сделки >>>
             net = deal.amount # <<< ИСПОЛЬЗУЕМ ВСЮ СУММУ СДЕЛКИ
             if deal.type == "Продажа":
-                # net = deal.amount - 10000  # УБРАТЬ ЭТУ СТРОКУ, ЕСЛИ ВЫ УЖЕ ВНОСИТЕ "ЧИСТУЮ" КОМИССИЮ
                 if item["level"] == 1:
                     bonus = net * 0.06  # ИЛИ ВАШ НОВЫЙ ПРОЦЕНТ
                 elif item["level"] == 2:
@@ -281,7 +279,7 @@ def get_referrals(partner_id: str):
 def get_deals_for_partner(partner_id: str):
     """
     Возвращает статистику и данные для конкретного партнера.
-    Добавлено: Древовидная структура рефералов.
+    Добавлено: Древовидная структура рефералов и привлечённые сделки.
     """
     try:
         print(f"[DEBUG] Запрашиваем статистику для партнера: {partner_id}")
@@ -358,7 +356,21 @@ def get_deals_for_partner(partner_id: str):
 
             referral_tree.append(ref_data)
 
-        # 6. Формируем ответ
+        # 6. Получим привлечённые сделки (сделки рефералов)
+        referral_deals = []
+        for ref in referrals:
+            # Получим все сделки этого реферала
+            ref_deals_response = supabase.table("deals").select("*").eq("partner_id", ref["id"]).execute()
+            ref_deals = ref_deals_response.data if ref_deals_response.data else []
+            for d in ref_deals:
+                referral_deals.append({
+                    "id": d["id"],
+                    "type": d["type"],
+                    "amount": d["amount"],
+                    "referrer_name": ref["name"] # Имя реферала
+                })
+
+        # 7. Формируем ответ
         result = {
             "partner_id": partner_id,
             "partner_name": "Неизвестный", # Можно добавить логику получения имени
@@ -370,7 +382,8 @@ def get_deals_for_partner(partner_id: str):
             },
             "deals": deals,
             "bonuses_received": bonuses_received,
-            "referral_tree": referral_tree
+            "referral_tree": referral_tree,
+            "referral_deals": referral_deals
         }
 
         return result
