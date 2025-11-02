@@ -52,11 +52,9 @@ def add_partner(partner: Partner):
 @app.post("/deal")
 def add_deal(deal: Deal):
     # Сохраняем сделку (включая дату)
-data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute()
-
+    data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute() # <<< exclude_unset=True
     # Рассчитываем бонусы
     calculate_bonuses(deal)
-
     return data
 
 def calculate_bonuses(deal):
