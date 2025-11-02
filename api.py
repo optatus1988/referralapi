@@ -145,6 +145,7 @@ def get_all_bonuses():
             enriched_bonus['partner_name'] = partner['name'] if partner else "Неизвестный"
             # Дата сделки
             deal = deals_map.get(b['deal_id'])
+            print(f"[DEBUG] deal_date для {b['deal_id']}: {deal['date'] if deal else 'None'}")
             enriched_bonus['deal_date'] = deal['date'] if deal and deal.get('date') else None
             enriched_bonuses.append(enriched_bonus)
 
