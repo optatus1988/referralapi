@@ -219,8 +219,14 @@ def get_partner(partner_id: str):
 
 @app.get("/partner")  # <<< Новый маршрут для загрузки списка перекупов
 def get_all_partners():
-    data, count = supabase.table("partners").select("*").execute()
-    return data[1]
+    """
+    Возвращает список всех партнеров.
+    """
+    try:
+        data, count = supabase.table("partners").select("*").execute()
+        return data[1]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка партнеров: {str(e)}")
 
 @app.get("/referrals/{partner_id}")
 def get_referrals(partner_id: str):
