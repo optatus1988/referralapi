@@ -296,6 +296,7 @@ def get_deals_for_partner(partner_id: str):
 def get_payouts_summary():
     """
     Возвращает сводку выплат по каждому партнеру: общая сумма бонусов, выплачено, остаток.
+    Исправлено: Обработка ошибок, проверка данных.
     """
     try:
         print("[DEBUG] Запрашиваем сводку выплат...")
@@ -312,25 +313,27 @@ def get_payouts_summary():
         # 3. Суммируем бонусы по каждому рефереру
         bonus_map = {}
         for b in bonuses:
-            ref_id = b["referrer_id"]
-            if ref_id not in bonus_map:
-                # Получаем имя партнёра
-                p_data_response = supabase.table("partners").select("name").eq("id", ref_id).execute()
-                # Проверяем, есть ли данные о партнере
-                if p_data_response.data and len(p_data_response.data) > 0:
-                    name = p_data_response.data[0]["name"]
-                else:
-                    name = "Unknown"
-                bonus_map[ref_id] = {"name": name, "total_bonuses": 0}
-            bonus_map[ref_id]["total_bonuses"] += b["bonus"]
+            ref_id = b.get("referrer_id") # <<< Используем .get для безопасности
+            if ref_id:
+                if ref_id not in bonus_map:
+                    # Получаем имя партнёра
+                    p_data_response = supabase.table("partners").select("name").eq("id", ref_id).execute()
+                    # Проверяем, есть ли данные о партнере
+                    if p_data_response.data and len(p_data_response.data) > 0:
+                        name = p_data_response.data[0].get("name", "Unknown") # <<< Используем .get для безопасности
+                    else:
+                        name = "Unknown"
+                    bonus_map[ref_id] = {"name": name, "total_bonuses": 0}
+                bonus_map[ref_id]["total_bonuses"] += b.get("bonus", 0) # <<< Используем .get для безопасности
 
         # 4. Суммируем выплаты по каждому партнёру
         payout_map = {}
         for p in payouts:
-            partner_id = p["partner_id"]
-            if partner_id not in payout_map:
-                payout_map[partner_id] = 0
-            payout_map[partner_id] += p["amount"]
+            partner_id = p.get("partner_id") # <<< Используем .get для безопасности
+            if partner_id:
+                if partner_id not in payout_map:
+                    payout_map[partner_id] = 0
+                payout_map[partner_id] += p.get("amount", 0) # <<< Используем .get для безопасности
 
         # 5. Формируем сводку
         result = []
@@ -341,9 +344,9 @@ def get_payouts_summary():
             result.append({
                 "id": ref_id,
                 "name": bonus_info["name"],
-                "total_bonuses": total_bonuses, # <<< Новое
-                "paid": paid, # <<< Новое
-                "balance": balance # <<< Новое
+                "total_bonuses": total_bonuses,
+                "paid": paid,
+                "balance": balance
             })
 
         print("[DEBUG] Сводка выплат рассчитана.")
