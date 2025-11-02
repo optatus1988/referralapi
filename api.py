@@ -219,56 +219,145 @@ def get_referrals(partner_id: str):
     return data[1]
 
 # <<< НОВОЕ: Маршрут для статистики по пользователю >>>
+# <<< НОВОЕ: Маршрут для статистики по пользователю >>>
 @app.get("/deals/partner/{partner_id}")
 def get_deals_for_partner(partner_id: str):
     """
     Возвращает статистику и данные для конкретного партнера.
-    Добавлено: Возврат списка `deals`.
+    Добавлено:
+    - Всего сделок
+    - Привлечённые сделки
+    - Дата сделки
+    - Имя партнёра
+    - Древовидная структура рефералов
     """
     try:
         print(f"[DEBUG] Запрашиваем статистику для партнера: {partner_id}")
         # 1. Получаем все сделки партнера
         deals_response = supabase.table("deals").select("*").eq("partner_id", partner_id).execute()
         deals = deals_response.data if deals_response.data else []
-        print(f"[DEBUG] Найдено сделок: {len(deals)}")
 
         # 2. Получаем бонусы, которые получил партнер как реферер (уровень 1 от его рефералов)
         bonuses_received_response = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
         bonuses_received = bonuses_received_response.data if bonuses_received_response.data else []
-        print(f"[DEBUG] Найдено бонусов за рефералов: {len(bonuses_received)}")
 
         # 3. Получаем список рефералов 1-го уровня
         referrals_response = supabase.table("partners").select("id").eq("referrer_id", partner_id).execute()
         referrals = [r['id'] for r in referrals_response.data] if referrals_response.data else []
-        print(f"[DEBUG] Найдено рефералов 1-го уровня: {len(referrals)}")
 
-        # 4. Считаем статистику
+        # 4. <<< НОВОЕ: Получаем привлечённые сделки (сделки рефералов) >>>
+        referral_deals = []
+        for ref_id in referrals:
+            # Получим все сделки этого реферала
+            ref_deals_response = supabase.table("deals").select("*").eq("partner_id", ref_id).execute()
+            ref_deals = ref_deals_response.data if ref_deals_response.data else []
+            for d in ref_deals:
+                referral_deals.append({
+                    "id": d["id"],
+                    "type": d["type"],
+                    "amount": d["amount"],
+                    "date": d.get("date"), # <<< Добавляем дату
+                    "referrer_id": ref_id # <<< Добавляем ID реферала
+                })
+        print(f"[DEBUG] Найдено привлечённых сделок: {len(referral_deals)}")
+        # <<< КОНЕЦ НОВОГО: Получаем привлечённые сделки (сделки рефералов) >>>
+
+        # 5. <<< НОВОЕ: Строим древовидную структуру рефералов >>>
+        def build_referral_tree(referrer_id, level=0):
+            if level >= 3:
+                return []
+            children = []
+            # Получаем рефералов текущего уровня
+            sub_referrals_response = supabase.table("partners").select("id, name").eq("referrer_id", referrer_id).execute()
+            sub_referrals = sub_referrals_response.data if sub_referrals_response.data else []
+            for sub_ref in sub_referrals:
+                # Получаем бонусы, полученные этим рефералом как реферером
+                sub_ref_bonuses_response = supabase.table("bonuses").select("bonus").eq("referrer_id", sub_ref["id"]).execute()
+                sub_ref_bonuses = sub_ref_bonuses_response.data if sub_ref_bonuses_response.data else []
+                total_bonuses = sum(b.get('bonus', 0) for b in sub_ref_bonuses)
+                children.append({
+                    "id": sub_ref["id"],
+                    "name": sub_ref["name"],
+                    "total_bonuses": total_bonuses,
+                    "children": build_referral_tree(sub_ref["id"], level + 1) # <<< Рекурсивный вызов
+                })
+            return children
+
+        referral_tree = build_referral_tree(partner_id, 0)
+        print(f"[DEBUG] Древовидная структура рефералов построена.")
+        # <<< КОНЕЦ НОВОГО: Строим древовидную структуру рефералов >>>
+
+        # 6. Считаем статистику
         total_deals = len(deals)
         total_commission = sum(d.get('amount', 0) for d in deals)
         total_bonuses = sum(b.get('bonus', 0) for b in bonuses_received)
         referrals_count = len(referrals)
-        print(f"[DEBUG] Статистика рассчитана: Deals={total_deals}, Commission={total_commission}, Bonuses={total_bonuses}, Referrals={referrals_count}")
+        # <<< НОВОЕ: Считаем привлечённые сделки >>>
+        referral_deals_count = len(referral_deals)
+        # <<< КОНЕЦ НОВОГО: Считаем привлечённые сделки >>>
 
-        # 5. <<< НОВОЕ: Получаем имя партнера >>>
-        partner_name = "Unknown"
+        # 7. <<< НОВОЕ: Получаем имя партнера >>>
+        partner_name = "Неизвестный"
         partner_data_response = supabase.table("partners").select("name").eq("id", partner_id).execute()
         if partner_data_response.data and len(partner_data_response.data) > 0:
             partner_name = partner_data_response.data[0]["name"]
         print(f"[DEBUG] Имя партнера: {partner_name}")
         # <<< КОНЕЦ НОВОГО: Получаем имя партнера >>>
 
-        # 6. Формируем ответ
+        # 8. <<< НОВОЕ: Получаем имена рефералов для бонусов >>>
+        # Создаём карту ID -> Имя для всех партнёров
+        all_partners_response = supabase.table("partners").select("id, name").execute()
+        partners_map = {p['id']: p['name'] for p in all_partners_response.data} if all_partners_response.data else {}
+        print(f"[DEBUG] Загружена карта партнёров: {len(partners_map)}")
+
+        # Обогащаем бонусы именами
+        enriched_bonuses = []
+        for b in bonuses_received:
+            enriched_bonus = b.copy()
+            # Имя партнёра, совершившего сделку
+            partner_name_b = partners_map.get(b['partner_id'], "Неизвестный")
+            enriched_bonus['partner_name'] = partner_name_b
+            enriched_bonuses.append(enriched_bonus)
+        print(f"[DEBUG] Бонусы обогащены именами.")
+        # <<< КОНЕЦ НОВОГО: Получаем имена рефералов для бонусов >>>
+
+        # 9. <<< НОВОЕ: Обогащаем сделки именами рефералов >>>
+        enriched_deals = []
+        for d in deals:
+            enriched_deal = d.copy()
+            # Имя партнёра, совершившего сделку (он же partner_id)
+            partner_name_d = partners_map.get(d['partner_id'], "Неизвестный")
+            enriched_deal['partner_name'] = partner_name_d
+            enriched_deals.append(enriched_deal)
+        print(f"[DEBUG] Сделки обогащены именами.")
+        # <<< КОНЕЦ НОВОГО: Обогащаем сделки именами рефералов >>>
+
+        # 10. <<< НОВОЕ: Обогащаем привлечённые сделки именами рефералов >>>
+        enriched_referral_deals = []
+        for d in referral_deals:
+            enriched_deal = d.copy()
+            # Имя партнёра, совершившего сделку (он же referrer_id)
+            partner_name_rd = partners_map.get(d['referrer_id'], "Неизвестный")
+            enriched_deal['referrer_name'] = partner_name_rd
+            enriched_referral_deals.append(enriched_deal)
+        print(f"[DEBUG] Привлечённые сделки обогащены именами.")
+        # <<< КОНЕЦ НОВОГО: Обогащаем привлечённые сделки именами рефералов >>>
+
+        # 11. Формируем ответ
         result = {
             "partner_id": partner_id,
-            "partner_name": partner_name, # <<< Добавлено
+            "partner_name": partner_name, # <<< Добавлено имя
             "stats": {
                 "total_deals": total_deals,
                 "total_commission": total_commission,
                 "total_bonuses": total_bonuses,
-                "referrals_count": referrals_count
+                "referrals_count": referrals_count,
+                "referral_deals_count": referral_deals_count # <<< Добавлено
             },
-            "deals": deals, # <<< Добавлено
-            "bonuses_received": bonuses_received
+            "deals": enriched_deals, # <<< Обогащённые сделки
+            "bonuses_received": enriched_bonuses, # <<< Обогащённые бонусы
+            "referral_deals": enriched_referral_deals, # <<< Обогащённые привлечённые сделки
+            "referral_tree": referral_tree # <<< Добавлено
         }
 
         return result
