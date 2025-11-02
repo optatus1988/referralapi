@@ -51,11 +51,32 @@ def add_partner(partner: Partner):
 
 @app.post("/deal")
 def add_deal(deal: Deal):
-    # Сохраняем сделку (включая дату)
-    data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute() # <<< exclude_unset=True
-    # Рассчитываем бонусы
-    calculate_bonuses(deal)
-    return data
+    """
+    Добавляет новую сделку и запускает расчет бонусов.
+    """
+    try:
+        print(f"[DEBUG] Начинаем обработку новой сделки: {deal.id}")
+        # 1. <<< НОВОЕ: Проверяем, существует ли сделка >>>
+        deal_check = supabase.table("deals").select("id").eq("id", deal.id).execute()
+        if deal_check.data and len(deal_check.data) > 0:
+            raise HTTPException(status_code=409, detail=f"Сделка с ID {deal.id} уже существует")
+        # <<< КОНЕЦ НОВОГО: Проверяем, существует ли сделка >>>
+
+        # 2. Сохраняем сделку (включая дату)
+        data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute() # <<< exclude_unset=True
+        print(f"[DEBUG] Сделка {deal.id} сохранена в Supabase.")
+
+        # 3. Рассчитываем бонусы (асинхронно или синхронно - зависит от вашей архитектуры)
+        # В текущей реализации это синхронный вызов.
+        calculate_bonuses(deal)
+        print(f"[DEBUG] Расчет бонусов для сделки {deal.id} завершен.")
+
+        return data
+    except HTTPException:
+        # Перебрасываем HTTPException без изменений
+        raise 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении сделки: {str(e)}")
 
 def calculate_bonuses(deal):
     # Получаем цепочку рефералов
