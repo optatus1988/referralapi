@@ -210,29 +210,6 @@ def get_bonuses(partner_id: str):
     data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
 
-@app.get("/payouts")
-def get_payouts():
-    # Суммируем бонусы по каждому рефереру
-    data, count = supabase.table("bonuses").select("referrer_id, bonus").execute()
-    bonuses = data[1]
-
-    payout_map = {}
-    for b in bonuses:
-        ref_id = b["referrer_id"]
-        if ref_id not in payout_map:
-            # Получаем имя партнёра
-            p_data_response = supabase.table("partners").select("name").eq("id", ref_id).execute()
-            # Проверяем, есть ли данные о партнере
-            if p_data_response.data and len(p_data_response.data) > 0:
-                name = p_data_response.data[0]["name"]
-            else:
-                name = "Unknown"
-            payout_map[ref_id] = {"name": name, "total": 0}
-        payout_map[ref_id]["total"] += b["bonus"]
-
-    result = [{"id": k, "name": v["name"], "total": v["total"]} for k, v in payout_map.items()]
-    return result
-
 @app.get("/partner/{partner_id}")
 def get_partner(partner_id: str):
     data, count = supabase.table("partners").select("*").eq("id", partner_id).execute()
