@@ -38,6 +38,7 @@ class Deal(BaseModel):
     partner_id: str
     type: str
     amount: float
+    date: Optional[str] = None # <<< Новое поле
 
 @app.get("/")
 def root():
@@ -50,8 +51,9 @@ def add_partner(partner: Partner):
 
 @app.post("/deal")
 def add_deal(deal: Deal):
-    # Сохраняем сделку
-    data, count = supabase.table("deals").insert(deal.dict()).execute()
+    # Сохраняем сделку (включая дату)
+    data, count = supabase.table("deals").insert(deal.dict(exclude_unset=True)).execute() # <<< exclude_unset=True
+    # ...
 
     # Рассчитываем бонусы
     calculate_bonuses(deal)
@@ -115,8 +117,42 @@ def calculate_bonuses(deal):
 
 @app.get("/bonuses")
 def get_all_bonuses():
-    data, count = supabase.table("bonuses").select("*").execute()
-    return data[1]
+    """
+    Возвращает список всех бонусов с именами партнёров и датами сделок.
+    """
+    try:
+        print("[DEBUG] Запрашиваем все бонусы...")
+        data, count = supabase.table("bonuses").select("*").execute()
+        bonuses = data[1] if data[1] else []
+        print(f"[DEBUG] Найдено бонусов: {len(bonuses)}")
+
+        # Получаем список всех партнёров для подстановки имён
+        partners_data_response = supabase.table("partners").select("*").execute()
+        partners_map = {p['id']: p for p in partners_data_response.data} if partners_data_response.data else {}
+        print(f"[DEBUG] Загружен список партнёров: {len(partners_map)}")
+
+        # Получаем список всех сделок для подстановки дат
+        deals_data_response = supabase.table("deals").select("*").execute()
+        deals_map = {d['id']: d for d in deals_data_response.data} if deals_data_response.data else {}
+        print(f"[DEBUG] Загружен список сделок: {len(deals_map)}")
+
+        # Обогащаем бонусы именами и датами
+        enriched_bonuses = []
+        for b in bonuses:
+            enriched_bonus = b.copy()
+            # Имя партнёра, совершившего сделку
+            partner = partners_map.get(b['partner_id'])
+            enriched_bonus['partner_name'] = partner['name'] if partner else "Неизвестный"
+            # Дата сделки
+            deal = deals_map.get(b['deal_id'])
+            enriched_bonus['deal_date'] = deal['date'] if deal and deal.get('date') else None
+            enriched_bonuses.append(enriched_bonus)
+
+        print("[DEBUG] Бонусы обогащены именами и датами.")
+        return enriched_bonuses
+    except Exception as e:
+        print(f"[ERROR] Ошибка в get_all_bonuses: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении бонусов: {str(e)}")
 
 @app.get("/bonuses/{partner_id}")
 def get_bonuses(partner_id: str):
