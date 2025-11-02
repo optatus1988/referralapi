@@ -40,11 +40,6 @@ class Deal(BaseModel):
     amount: float
     date: Optional[str] = None # <<< Новое поле
 
-class Payout(BaseModel):
-    partner_id: str
-    amount: float
-    date: Optional[str] = None
-
 @app.get("/")
 def root():
     return {"message": "API работает!"}
@@ -82,33 +77,6 @@ def add_deal(deal: Deal):
         raise 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при добавлении сделки: {str(e)}")
-
-@app.post("/payout")
-def add_payout(payout: Payout):
-    """
-    Добавляет новую запись о выплате.
-    """
-    try:
-        print(f"[DEBUG] Добавляем выплату для партнера: {payout.partner_id}, сумма: {payout.amount}, дата: {payout.date}")
-        # 1. Проверяем, существует ли партнёр
-        partner_check = supabase.table("partners").select("id").eq("id", payout.partner_id).execute()
-        if not partner_check.data or len(partner_check.data) == 0:
-            raise HTTPException(status_code=404, detail="Partner not found")
-
-        # 2. Подготавливаем данные для вставки
-        payout_data = payout.dict(exclude_unset=True) # <<< exclude_unset=True
-
-        # 3. Вставляем запись в таблицу payouts_history
-        data, count = supabase.table("payouts_history").insert(payout_data).execute()
-        print(f"[DEBUG] Выплата добавлена: {data}")
-
-        return data
-    except HTTPException:
-        # Перебрасываем HTTPException без изменений
-        raise 
-    except Exception as e:
-        print(f"[ERROR] Ошибка при добавлении выплаты: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error in add_payout: {str(e)}")
 
 def calculate_bonuses(deal):
     # Получаем цепочку рефералов
@@ -210,6 +178,29 @@ def get_bonuses(partner_id: str):
     data, count = supabase.table("bonuses").select("*").eq("referrer_id", partner_id).execute()
     return data[1]
 
+@app.get("/payouts")
+def get_payouts():
+    # Суммируем бонусы по каждому рефереру
+    data, count = supabase.table("bonuses").select("referrer_id, bonus").execute()
+    bonuses = data[1]
+
+    payout_map = {}
+    for b in bonuses:
+        ref_id = b["referrer_id"]
+        if ref_id not in payout_map:
+            # Получаем имя партнёра
+            p_data_response = supabase.table("partners").select("name").eq("id", ref_id).execute()
+            # Проверяем, есть ли данные о партнере
+            if p_data_response.data and len(p_data_response.data) > 0:
+                name = p_data_response.data[0]["name"]
+            else:
+                name = "Unknown"
+            payout_map[ref_id] = {"name": name, "total": 0}
+        payout_map[ref_id]["total"] += b["bonus"]
+
+    result = [{"id": k, "name": v["name"], "total": v["total"]} for k, v in payout_map.items()]
+    return result
+
 @app.get("/partner/{partner_id}")
 def get_partner(partner_id: str):
     data, count = supabase.table("partners").select("*").eq("id", partner_id).execute()
@@ -219,14 +210,8 @@ def get_partner(partner_id: str):
 
 @app.get("/partner")  # <<< Новый маршрут для загрузки списка перекупов
 def get_all_partners():
-    """
-    Возвращает список всех партнеров.
-    """
-    try:
-        data, count = supabase.table("partners").select("*").execute()
-        return data[1]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка партнеров: {str(e)}")
+    data, count = supabase.table("partners").select("*").execute()
+    return data[1]
 
 @app.get("/referrals/{partner_id}")
 def get_referrals(partner_id: str):
@@ -291,67 +276,3 @@ def get_deals_for_partner(partner_id: str):
     except Exception as e:
         print(f"[ERROR] Ошибка в get_deals_for_partner для {partner_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error in get_deals_for_partner: {str(e)}")
-
-@app.get("/payouts")
-def get_payouts_summary():
-    """
-    Возвращает сводку выплат по каждому партнеру: общая сумма бонусов, выплачено, остаток.
-    Исправлено: Обработка ошибок, проверка данных.
-    """
-    try:
-        print("[DEBUG] Запрашиваем сводку выплат...")
-        # 1. Получаем все бонусы
-        bonuses_data_response = supabase.table("bonuses").select("referrer_id, bonus").execute()
-        bonuses = bonuses_data_response.data if bonuses_data_response.data else []
-        print(f"[DEBUG] Найдено бонусов: {len(bonuses)}")
-
-        # 2. Получаем все выплаты
-        payouts_data_response = supabase.table("payouts_history").select("partner_id, amount").execute()
-        payouts = payouts_data_response.data if payouts_data_response.data else []
-        print(f"[DEBUG] Найдено выплат: {len(payouts)}")
-
-        # 3. Суммируем бонусы по каждому рефереру
-        bonus_map = {}
-        for b in bonuses:
-            ref_id = b.get("referrer_id") # <<< Используем .get для безопасности
-            if ref_id:
-                if ref_id not in bonus_map:
-                    # Получаем имя партнёра
-                    p_data_response = supabase.table("partners").select("name").eq("id", ref_id).execute()
-                    # Проверяем, есть ли данные о партнере
-                    if p_data_response.data and len(p_data_response.data) > 0:
-                        name = p_data_response.data[0].get("name", "Unknown") # <<< Используем .get для безопасности
-                    else:
-                        name = "Unknown"
-                    bonus_map[ref_id] = {"name": name, "total_bonuses": 0}
-                bonus_map[ref_id]["total_bonuses"] += b.get("bonus", 0) # <<< Используем .get для безопасности
-
-        # 4. Суммируем выплаты по каждому партнёру
-        payout_map = {}
-        for p in payouts:
-            partner_id = p.get("partner_id") # <<< Используем .get для безопасности
-            if partner_id:
-                if partner_id not in payout_map:
-                    payout_map[partner_id] = 0
-                payout_map[partner_id] += p.get("amount", 0) # <<< Используем .get для безопасности
-
-        # 5. Формируем сводку
-        result = []
-        for ref_id, bonus_info in bonus_map.items():
-            total_bonuses = bonus_info["total_bonuses"]
-            paid = payout_map.get(ref_id, 0)
-            balance = total_bonuses - paid
-            result.append({
-                "id": ref_id,
-                "name": bonus_info["name"],
-                "total_bonuses": total_bonuses,
-                "paid": paid,
-                "balance": balance
-            })
-
-        print("[DEBUG] Сводка выплат рассчитана.")
-        return result
-
-    except Exception as e:
-        print(f"[ERROR] Ошибка в get_payouts_summary: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error in get_payouts_summary: {str(e)}")
